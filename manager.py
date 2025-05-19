@@ -2,63 +2,78 @@ import json
 import os
 import base64
 import getpass
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
 from cryptography.fernet import Fernet
+from cryptography.hazmat.backends import default_backend
 
 DATA_FILE = 'passwords.json'
-KEY_FILE = 'key.key'
+SALT_FILE = 'salt.bin'
+ITERATIONS = 390000  # Recommended minimum for PBKDF2
 
 
-def generate_key():
-    """Generate and store an encryption key."""
-    key = Fernet.generate_key()
-    with open(KEY_FILE, 'wb') as key_file:
-        key_file.write(key)
-    return key
+def get_master_password():
+    return getpass.getpass("Enter master password: ").encode()
 
 
-def load_key():
-    """Load the encryption key from the key file, or create one if it doesn't exist."""
-    if not os.path.exists(KEY_FILE):
-        return generate_key()
-    with open(KEY_FILE, 'rb') as key_file:
-        return key_file.read()
+def generate_salt():
+    salt = os.urandom(16)
+    with open(SALT_FILE, 'wb') as f:
+        f.write(salt)
+    return salt
 
 
-def load_passwords():
-    """Load passwords from the encrypted JSON file."""
+def load_salt():
+    if not os.path.exists(SALT_FILE):
+        return generate_salt()
+    with open(SALT_FILE, 'rb') as f:
+        return f.read()
+
+
+def derive_key(password, salt):
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=ITERATIONS,
+        backend=default_backend()
+    )
+    return base64.urlsafe_b64encode(kdf.derive(password))
+
+
+def load_passwords(fernet):
     if not os.path.exists(DATA_FILE):
         return {}
     with open(DATA_FILE, 'rb') as file:
         encrypted_data = file.read()
         if not encrypted_data:
             return {}
-        fernet = Fernet(load_key())
-        decrypted_data = fernet.decrypt(encrypted_data)
-        return json.loads(decrypted_data)
+        try:
+            decrypted_data = fernet.decrypt(encrypted_data)
+            return json.loads(decrypted_data)
+        except Exception:
+            print("❌ Incorrect master password or corrupted data.")
+            exit()
 
 
-def save_passwords(passwords):
-    """Encrypt and save passwords to the JSON file."""
-    fernet = Fernet(load_key())
+def save_passwords(passwords, fernet):
     encrypted_data = fernet.encrypt(json.dumps(passwords).encode())
     with open(DATA_FILE, 'wb') as file:
         file.write(encrypted_data)
 
 
-def add_password():
-    """Add a new account and password."""
+def add_password(fernet):
     account = input("Enter account name: ")
     username = input("Enter username: ")
     password = getpass.getpass("Enter password (hidden): ")
-    passwords = load_passwords()
+    passwords = load_passwords(fernet)
     passwords[account] = {'username': username, 'password': password}
-    save_passwords(passwords)
+    save_passwords(passwords, fernet)
     print(f"[+] Saved credentials for '{account}'")
 
 
-def view_passwords():
-    """View all stored passwords."""
-    passwords = load_passwords()
+def view_passwords(fernet):
+    passwords = load_passwords(fernet)
     if not passwords:
         print("[-] No saved passwords.")
         return
@@ -68,7 +83,7 @@ def view_passwords():
         print(f"    Password: {creds['password']}")
 
 
-def menu():
+def menu(fernet):
     print("🛡️  Simple Password Manager")
     print("-----------------------------")
     print("1. Add password")
@@ -78,9 +93,9 @@ def menu():
     choice = input("Choose an option (1-3): ")
 
     if choice == '1':
-        add_password()
+        add_password(fernet)
     elif choice == '2':
-        view_passwords()
+        view_passwords(fernet)
     elif choice == '3':
         print("Exiting...")
         exit()
@@ -89,6 +104,10 @@ def menu():
 
 
 if __name__ == "__main__":
-    while True:
-        menu()
+    password = get_master_password()
+    salt = load_salt()
+    key = derive_key(password, salt)
+    fernet = Fernet(key)
 
+    while True:
+        menu(fernet)
