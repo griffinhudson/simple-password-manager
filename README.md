@@ -21,3 +21,14 @@ Install dependencies:
 
 ```bash
 pip install cryptography
+
+## Security Fix
+
+Previous versions stored the encryption key in plaintext (`key.key`), which is insecure if exposed. The latest update:
+
+- Removes static key storage.
+- Uses PBKDF2 to derive the encryption key from a master password.
+- Stores only a `salt.bin` file (safe to ignore on GitHub).
+- Improves overall password manager security.
+
+Ensure you do not upload `passwords.json` or `salt.bin` to GitHub.
