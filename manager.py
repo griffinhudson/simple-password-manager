@@ -1,97 +1,94 @@
-from cryptography.fernet import Fernet
+import json
 import os
 import base64
-import hashlib
-from getpass import getpass
+import getpass
+from cryptography.fernet import Fernet
 
-# File to store passwords
-DATA_FILE = 'passwords.txt'
+DATA_FILE = 'passwords.json'
 KEY_FILE = 'key.key'
 
 
-def generate_key(master_password):
-    """Derive a Fernet key from the master password."""
-    return base64.urlsafe_b64encode(
-        hashlib.sha256(master_password.encode()).digest()
-    )
+def generate_key():
+    """Generate and store an encryption key."""
+    key = Fernet.generate_key()
+    with open(KEY_FILE, 'wb') as key_file:
+        key_file.write(key)
+    return key
 
 
 def load_key():
-    """Load the encryption key from file, or prompt user to create it."""
-    if os.path.exists(KEY_FILE):
-        with open(KEY_FILE, 'rb') as file:
-            return file.read()
-    else:
-        print("No key found. Creating a new one...")
-        master_pwd = getpass("Set a master password: ")
-        key = generate_key(master_pwd)
-        with open(KEY_FILE, 'wb') as file:
-            file.write(key)
-        return key
+    """Load the encryption key from the key file, or create one if it doesn't exist."""
+    if not os.path.exists(KEY_FILE):
+        return generate_key()
+    with open(KEY_FILE, 'rb') as key_file:
+        return key_file.read()
 
 
-def add_password(fernet):
-    site = input("Enter website name: ")
-    username = input("Enter username: ")
-    password = getpass("Enter password: ")
-    encrypted = fernet.encrypt(f"{site}|{username}|{password}".encode()).decode()
-    with open(DATA_FILE, 'a') as f:
-        f.write(encrypted + '\n')
-    print("✅ Password added successfully!\n")
-
-
-def view_passwords(fernet):
+def load_passwords():
+    """Load passwords from the encrypted JSON file."""
     if not os.path.exists(DATA_FILE):
-        print("No passwords saved yet.\n")
+        return {}
+    with open(DATA_FILE, 'rb') as file:
+        encrypted_data = file.read()
+        if not encrypted_data:
+            return {}
+        fernet = Fernet(load_key())
+        decrypted_data = fernet.decrypt(encrypted_data)
+        return json.loads(decrypted_data)
+
+
+def save_passwords(passwords):
+    """Encrypt and save passwords to the JSON file."""
+    fernet = Fernet(load_key())
+    encrypted_data = fernet.encrypt(json.dumps(passwords).encode())
+    with open(DATA_FILE, 'wb') as file:
+        file.write(encrypted_data)
+
+
+def add_password():
+    """Add a new account and password."""
+    account = input("Enter account name: ")
+    username = input("Enter username: ")
+    password = getpass.getpass("Enter password (hidden): ")
+    passwords = load_passwords()
+    passwords[account] = {'username': username, 'password': password}
+    save_passwords(passwords)
+    print(f"[+] Saved credentials for '{account}'")
+
+
+def view_passwords():
+    """View all stored passwords."""
+    passwords = load_passwords()
+    if not passwords:
+        print("[-] No saved passwords.")
         return
-
-    with open(DATA_FILE, 'r') as f:
-        lines = f.readlines()
-        if not lines:
-            print("No passwords found.\n")
-            return
-
-        print("\n🔐 Saved Passwords:\n")
-        for line in lines:
-            try:
-                decrypted = fernet.decrypt(line.strip().encode()).decode()
-                site, username, password = decrypted.split('|')
-                print(f"🌐 Site: {site}\n👤 Username: {username}\n🔑 Password: {password}\n")
-            except Exception:
-                print("⚠️ Could not decrypt a line. Skipping...\n")
+    for account, creds in passwords.items():
+        print(f"\n🔐 Account: {account}")
+        print(f"    Username: {creds['username']}")
+        print(f"    Password: {creds['password']}")
 
 
-def main():
-    print("🔐 Welcome to the Secure Password Manager!")
-    master_pwd = getpass("Enter your master password: ")
-    key = generate_key(master_pwd)
+def menu():
+    print("🛡️  Simple Password Manager")
+    print("-----------------------------")
+    print("1. Add password")
+    print("2. View passwords")
+    print("3. Exit")
 
-    # Verify that key matches the stored key
-    if os.path.exists(KEY_FILE):
-        with open(KEY_FILE, 'rb') as f:
-            stored_key = f.read()
-        if stored_key != key:
-            print("❌ Incorrect master password!")
-            return
+    choice = input("Choose an option (1-3): ")
 
-    fernet = Fernet(key)
+    if choice == '1':
+        add_password()
+    elif choice == '2':
+        view_passwords()
+    elif choice == '3':
+        print("Exiting...")
+        exit()
+    else:
+        print("Invalid choice.")
 
+
+if __name__ == "__main__":
     while True:
-        print("1. Add a new password")
-        print("2. View saved passwords")
-        print("3. Exit")
-        choice = input("Enter your choice: ").strip()
+        menu()
 
-        if choice == '1':
-            add_password(fernet)
-        elif choice == '2':
-            view_passwords(fernet)
-        elif choice == '3':
-            print("Goodbye! 👋")
-            break
-        else:
-            print("Invalid choice. Try again.\n")
-
-
-if __name__ == '__main__':
-    main()
