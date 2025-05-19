@@ -21,7 +21,7 @@ Install dependencies:
 
 ```bash
 pip install cryptography
-
+```
 ## Security Fix
 
 Previous versions stored the encryption key in plaintext (`key.key`), which is insecure if exposed. The latest update:
